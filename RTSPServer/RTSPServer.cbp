@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="RTSPServer" />
+		<Option pch_mode="2" />
+		<Option compiler="gcc" />
+		<Build>
+			<Target title="Debug">
+				<Option output="bin/Debug/RTSPServer" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Debug/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Compiler>
+					<Add option="-std=gnu++11" />
+					<Add option="-g" />
+				</Compiler>
+			</Target>
+			<Target title="Release">
+				<Option output="bin/Release/RTSPServer" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Release/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Compiler>
+					<Add option="-O2" />
+					<Add option="-g" />
+					<Add directory="header" />
+				</Compiler>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-Wall" />
+			<Add option="-fexceptions" />
+		</Compiler>
+		<Unit filename="header/EventLoop.h" />
+		<Unit filename="header/MediaSession.h" />
+		<Unit filename="header/aacSource.h" />
+		<Unit filename="header/buffer.h" />
+		<Unit filename="header/event.h" />
+		<Unit filename="header/h264Source.h" />
+		<Unit filename="header/media.h" />
+		<Unit filename="header/mediaSession.h" />
+		<Unit filename="header/mediaSource.h" />
+		<Unit filename="header/msPoller.h" />
+		<Unit filename="header/rtpSession.h" />
+		<Unit filename="header/rtpUtil.h" />
+		<Unit filename="header/rtspClientConnection.h" />
+		<Unit filename="header/rtspServer.h" />
+		<Unit filename="header/socketUtil.h" />
+		<Unit filename="header/tcpClientConnection.h" />
+		<Unit filename="header/tcpServer.h" />
+		<Unit filename="source/EventLoop.cpp" />
+		<Unit filename="source/aacSource.cpp" />
+		<Unit filename="source/buffer.cpp" />
+		<Unit filename="source/event.cpp" />
+		<Unit filename="source/h264Source.cpp" />
+		<Unit filename="source/main.cpp" />
+		<Unit filename="source/mediaSession.cpp" />
+		<Unit filename="source/mediaSource.cpp" />
+		<Unit filename="source/msPoller.cpp" />
+		<Unit filename="source/rtpSession.cpp" />
+		<Unit filename="source/rtpUtil.cpp" />
+		<Unit filename="source/rtspClientConnection.cpp" />
+		<Unit filename="source/rtspServer.cpp" />
+		<Unit filename="source/socketUtil.cpp" />
+		<Unit filename="source/tcpClientConnection.cpp" />
+		<Unit filename="source/tcpServer.cpp" />
+		<Extensions />
+	</Project>
+</CodeBlocks_project_file>
