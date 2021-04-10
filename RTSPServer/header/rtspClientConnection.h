@@ -21,15 +21,6 @@ struct RtspUrlInfo
 class rtspClientConnection : public clientConnection
 {
 public:
-	enum ConnectionState
-	{
-		START_CONNECT,
-		START_PLAY,
-		START_PUSH,
-        START_PAUSE,
-        START_CLOSE
-	};
-
 	rtspClientConnection() = delete;
     rtspClientConnection(std::weak_ptr<tcpServer> ownServer, int clientSocket);
     virtual ~rtspClientConnection();
@@ -57,11 +48,7 @@ private:
 	int handleCmdPlay(unsigned int  cseq);
     int handleCmdPause(unsigned int  cseq);
 	int handleCmdTeardown(unsigned int  cseq);
-
-
-	ConnectionState conn_state_ = START_CONNECT;
 	int  session_id_ = 0;
 	struct RtspUrlInfo rtsp_url_info_;
-
 	std::shared_ptr<rtpSession> rtp_session_;
 };

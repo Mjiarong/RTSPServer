@@ -139,7 +139,7 @@ bool rtspClientConnection::parseRTSPURL(char const* url)
 
         char const* preSuffixStart  = ++from;
         // The remainder of the URL is the suffix:
-        char const* suffixStart = NULL;
+        char const* suffixStart = nullptr;
         for (p = from; *p != '\0'; ++p)
         {
             if (*p == '/') {
@@ -151,10 +151,19 @@ bool rtspClientConnection::parseRTSPURL(char const* url)
         {
             unsigned char preSuffixLen = suffixStart - preSuffixStart - 1;// skip '\0'
             auto preSuffix = new char[preSuffixLen + 1] ; // allow for the trailing '\0'
+            if(preSuffix==nullptr)
+            {
+                perror("preSuffix==nullptr\n");
+                return false;
+            }
             memcpy(preSuffix, preSuffixStart, preSuffixLen);
-            preSuffix[preSuffixLen + 1] = '\0';
+            preSuffix[preSuffixLen] = '\0';
             rtsp_url_info_.preSuffix = preSuffix;
             rtsp_url_info_.suffix = suffixStart;
+        }
+        else
+        {
+            rtsp_url_info_.preSuffix = preSuffixStart;
         }
         return true;
     } while (0);
@@ -191,26 +200,39 @@ int rtspClientConnection::handleCmdDescribe(unsigned int  cseq, char* url)
 	}
 
     std::shared_ptr<rtspServer> server = std::dynamic_pointer_cast<rtspServer>(tmp);
-    rtp_session_ = createClientSession();
+    std::shared_ptr<mediaSession>  mediaSessionPtr = server->lookMediaSession(rtsp_url_info_.preSuffix);
+	if(!mediaSessionPtr)  {
+        perror("no mediaSessionPtr");
+		return MS_ERR;
+	}
 
+    rtp_session_ = createClientSession();
     char sdp[500];
     char localIp[100];
-    wbuff_.clear();
     sscanf(url, "rtsp://%[^:]:", localIp);
-
-    sprintf(sdp, "v=0\r\n"
+    int offest = sprintf(sdp, "v=0\r\n"
                  "o=- 9%ld 1 IN IP4 %s\r\n"
                  "t=0 0\r\n"
-                 "a=control:*\r\n"
-                 "m=video 0 RTP/AVP 96\r\n"
-                 "a=rtpmap:96 H264/90000\r\n"
-                 "a=control:track0\r\n",
-                 //"m=audio 0 RTP/AVP 97\r\n"
-                 //"a=rtpmap:97 mpeg4-generic/44100/2\r\n"
-                 //"a=fmtp:97 SizeLength=13;\r\n"
-                 //"a=control:track1\r\n",
+                 "a=control:*\r\n",
                  time(NULL), localIp);
 
+    auto source = mediaSessionPtr->lookSource(channel_0);
+    if (source)
+    {
+        offest += sprintf(sdp + offest, "m=video 0 RTP/AVP 96\r\n"
+                     "a=rtpmap:96 H264/90000\r\n"
+                     "a=control:track0\r\n");
+    }
+    source = mediaSessionPtr->lookSource(channel_1);
+    if (source)
+    {
+        sprintf(sdp + offest, "m=audio 0 RTP/AVP 97\r\n"
+                     "a=rtpmap:97 mpeg4-generic/44100/2\r\n"
+                     "a=fmtp:97 SizeLength=13;\r\n"
+                     "a=control:track1\r\n");
+    }
+
+    wbuff_.clear();
     sprintf(wbuff_.data(), "RTSP/1.0 200 OK\r\nCSeq: %d\r\n"
                     "Content-Base: %s\r\n"
                     "Content-type: application/sdp\r\n"
@@ -234,25 +256,25 @@ int rtspClientConnection::handleCmdSetup(unsigned int  cseq, unsigned int  clien
 	}
 
     std::shared_ptr<rtspServer> server = std::dynamic_pointer_cast<rtspServer>(tmp);
-
-    int channel;
-    if(rtsp_url_info_.suffix.compare("track0") ==0)
-    {
-        channel = channel_0;  //video
-    }
-    else if(rtsp_url_info_.suffix.compare("track1") ==0)
-    {
-        channel = channel_1;
-    }
-
-    rtp_session_->rtpSessionSetup(channel,clientRtpPort,sock_fd_);
     std::shared_ptr<mediaSession>  mediaSessionPtr = server->lookMediaSession(rtsp_url_info_.preSuffix);
 	if(!mediaSessionPtr)  {
 		return MS_ERR;
 	}
 
-	rtp_session_->SetSendFrameCallback(std::bind(&mediaSession::sendRtpVideoFrame, mediaSessionPtr, std::placeholders::_1, std::placeholders::_2),channel);
+    int channel;
+    if(rtsp_url_info_.suffix.compare("track0") ==0)
+    {
+        channel = channel_0;  //video
+        rtp_session_->SetSendFrameCallback(std::bind(&mediaSession::rtpSendH264Frame, mediaSessionPtr, std::placeholders::_1, std::placeholders::_2),channel);
+    }
+    else if(rtsp_url_info_.suffix.compare("track1") ==0)
+    {
+        channel = channel_1;
+        rtp_session_->SetSendFrameCallback(std::bind(&mediaSession::rtpSendAACFrame, mediaSessionPtr, std::placeholders::_1, std::placeholders::_2),channel);
+    }
+    rtp_session_->rtpSessionSetup(channel,clientRtpPort,sock_fd_);
     mediaSessionPtr->addClient(sock_fd_,rtp_session_);
+
 
     wbuff_.clear();
     sprintf(wbuff_.data(), "RTSP/1.0 200 OK\r\n"
@@ -280,7 +302,7 @@ int rtspClientConnection::handleCmdPlay(unsigned int  cseq)
 	}
 
     std::shared_ptr<rtspServer> server = std::dynamic_pointer_cast<rtspServer>(tmp);
-
+    rtp_session_->SetConnectionState(rtp_session_->STATE_PLAY);
     wbuff_.clear();
     sprintf(wbuff_.data(), "RTSP/1.0 200 OK\r\n"
                     "CSeq: %d\r\n"
@@ -289,10 +311,36 @@ int rtspClientConnection::handleCmdPlay(unsigned int  cseq)
                     cseq);
 
     wbuff_.set_dataLength(strlen(wbuff_.data()));
-    //write(sock_fd_, wbuff_.get_data(), wbuff_.get_dataLength());
     int ret = server->addEvent(sock_fd_,MS_WRITABLE,std::bind(&rtspClientConnection::sendRtspMessage, std::dynamic_pointer_cast<rtspClientConnection>(shared_from_this()),std::placeholders::_1),nullptr);
     return MS_OK;
 }
+
+int rtspClientConnection::handleCmdPause(unsigned int  cseq)
+{
+    std::shared_ptr<tcpServer> tmp = own_server.lock();
+	if (!tmp) {
+		return MS_ERR;
+	}
+
+    std::shared_ptr<rtspServer> server = std::dynamic_pointer_cast<rtspServer>(tmp);
+    std::shared_ptr<mediaSession>  mediaSessionPtr = server->lookMediaSession(rtsp_url_info_.preSuffix);
+	if(!mediaSessionPtr)  {
+		return MS_ERR;
+	}
+
+    rtp_session_->SetConnectionState(rtp_session_->STATE_PAUSE);
+	wbuff_.clear();
+    sprintf(wbuff_.data(), "RTSP/1.0 200 OK\r\n"
+                    "CSeq: %d\r\n"
+                    "Session: 66334873\r\n",
+                    cseq);
+
+    wbuff_.set_dataLength(strlen(wbuff_.data()));
+
+    int ret = server->addEvent(sock_fd_,MS_WRITABLE,std::bind(&rtspClientConnection::sendRtspMessage, std::dynamic_pointer_cast<rtspClientConnection>(shared_from_this()),std::placeholders::_1),nullptr);
+    return MS_OK;
+}
+
 
 int rtspClientConnection::handleCmdTeardown(unsigned int  cseq)
 {
@@ -302,11 +350,25 @@ int rtspClientConnection::handleCmdTeardown(unsigned int  cseq)
 	}
 
     std::shared_ptr<rtspServer> server = std::dynamic_pointer_cast<rtspServer>(tmp);
-
     std::shared_ptr<mediaSession>  mediaSessionPtr = server->lookMediaSession(rtsp_url_info_.preSuffix);
 	if(!mediaSessionPtr)  {
 		return MS_ERR;
 	}
+
+    rtp_session_->SetConnectionState(rtp_session_->STATE_CLOSE);
+	wbuff_.clear();
+	time_t timep;
+    time (&timep);
+
+    sprintf(wbuff_.data(), "RTSP/1.0 200 OK\r\n"
+                    "CSeq: %d\r\n"
+                    "Date: %s\r\n"
+                    "Session: 66334873\r\n",
+                    cseq,ctime(&timep));
+
+    wbuff_.set_dataLength(strlen(wbuff_.data()));
+
+    int ret = server->addEvent(sock_fd_,MS_WRITABLE,std::bind(&rtspClientConnection::sendRtspMessage, std::dynamic_pointer_cast<rtspClientConnection>(shared_from_this()),std::placeholders::_1),nullptr);
     mediaSessionPtr->removeClient(sock_fd_);
     rtp_session_ = nullptr;
     server->removeConnection(sock_fd_);
@@ -420,6 +482,14 @@ int rtspClientConnection::handleRequestBytes(int bytesRead)
     else if(!strcmp(method, "PLAY"))
     {
         if(handleCmdPlay(cseq))
+        {
+            printf("failed to handle play\n");
+            return MS_ERR;
+        }
+    }
+        else if(!strcmp(method, "PAUSE"))
+    {
+        if(handleCmdPause(cseq))
         {
             printf("failed to handle play\n");
             return MS_ERR;

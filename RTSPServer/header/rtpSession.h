@@ -8,6 +8,15 @@
 class rtpSession
 {
 public:
+    enum ConnectionState
+	{
+		STATE_INIT,
+		STATE_PLAY,
+		STATE_PUSH,
+        STATE_PAUSE,
+        STATE_CLOSE
+	};
+
     using SendFrameCallback = std::function<bool (int channel_id, std::shared_ptr<rtpSession> session)>;
 
     rtpSession(std::weak_ptr<clientConnection> rtsp_connection);
@@ -39,6 +48,10 @@ public:
     void SetSendFrameCallback(const SendFrameCallback callback, int channel)
 	{ send_frame_callback_[channel]= callback; }
 
+
+    void SetConnectionState(const ConnectionState state)
+	{ connection_state_ = state; }
+
 private:
     friend class mediaSession;
 
@@ -53,4 +66,5 @@ private:
     std::string peer_ip_;
     RtpHeader rtp_header_info[MAX_MEDIA_CHANNEL];
 	bool is_closed_ = false;
+	ConnectionState connection_state_ = STATE_INIT;
 };

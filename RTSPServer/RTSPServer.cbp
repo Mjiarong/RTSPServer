@@ -12,7 +12,7 @@
 				<Option type="1" />
 				<Option compiler="gcc" />
 				<Compiler>
-					<Add option="-std=gnu++11" />
+					<Add option="-std=c++14" />
 					<Add option="-g" />
 				</Compiler>
 			</Target>
@@ -23,6 +23,7 @@
 				<Option compiler="gcc" />
 				<Compiler>
 					<Add option="-O2" />
+					<Add option="-std=c++14" />
 					<Add option="-g" />
 					<Add directory="header" />
 				</Compiler>
@@ -33,7 +34,6 @@
 			<Add option="-fexceptions" />
 		</Compiler>
 		<Unit filename="header/EventLoop.h" />
-		<Unit filename="header/MediaSession.h" />
 		<Unit filename="header/aacSource.h" />
 		<Unit filename="header/buffer.h" />
 		<Unit filename="header/event.h" />

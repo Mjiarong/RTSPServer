@@ -6,7 +6,8 @@ std::atomic_uint mediaSession::last_session_id_(1);
 
 mediaSession::mediaSession(std::string preSuffix)
 	: preSuffix_(preSuffix),
-	  media_sources_(MAX_MEDIA_CHANNEL)
+	  media_sources_(MAX_MEDIA_CHANNEL),
+	  rtpPackets_(MAX_MEDIA_CHANNEL)
 {
 	session_id_ = ++last_session_id_;
 }
@@ -21,30 +22,28 @@ mediaSession* mediaSession::CreateNew(std::string pre_suffix)
 	return new mediaSession(std::move(pre_suffix));
 }
 
+std::shared_ptr<mediaSource> mediaSession::lookSource(int channel_id)
+{
+    return media_sources_.at(channel_id);
+}
+
 bool mediaSession::addSource(int channel_id, mediaSource* source)
 {
-    media_sources_[channel_id].reset(source);
+    rtpPackets_[channel_id].reset(std::move(new RtpPacket()));
+    media_sources_[channel_id].reset(std::move(source));
 	return true;
 }
 
 bool mediaSession::removeSource(int channel_id)
 {
+    rtpPackets_[channel_id]=nullptr;
 	media_sources_[channel_id] = nullptr;
 	return true;
 }
 
-mediaSource* mediaSession::getMediaSource(int channel_id)
-{
-	if (media_sources_[channel_id]) {
-		return media_sources_[channel_id].get();
-	}
-
-	return nullptr;
-}
-
 bool mediaSession::addClient(SOCKET rtspfd, std::shared_ptr<rtpSession> rtp_conn)
 {
-	std::lock_guard<std::mutex> lock(map_mutex_);
+	std::unique_lock<std::shared_timed_mutex> lock(map_mutex_);
 
 	auto iter = clients_.find (rtspfd);
 	if(iter == clients_.end()) {
@@ -58,7 +57,7 @@ bool mediaSession::addClient(SOCKET rtspfd, std::shared_ptr<rtpSession> rtp_conn
 
 void mediaSession::removeClient(SOCKET rtspfd)
 {
-	std::lock_guard<std::mutex> lock(map_mutex_);
+	std::unique_lock<std::shared_timed_mutex> lock(map_mutex_);
 
 	auto iter = clients_.find(rtspfd);
 	if (iter != clients_.end()) {
@@ -68,22 +67,21 @@ void mediaSession::removeClient(SOCKET rtspfd)
 
 
 
-int mediaSession::sendRtpVideoFrame(int channel, std::shared_ptr<rtpSession> session)
+int mediaSession::rtpSendH264Frame(int channel, std::shared_ptr<rtpSession> session)
 {
-    mediaSource* source = getMediaSource(channel);
+    auto source = media_sources_[channel];
     if (!source)
     {
         return MS_ERR;
     }
 
-    RtpPacket* rtpPacket = &rtpPackets_;
+    auto rtpPacket = rtpPackets_[channel];
     uint8_t *frame = source->getFrameBuff();
     uint32_t frameSize = source->getFrameSize();
 
     int socket = session->rtpfd_[channel];
     uint16_t port = session->peer_rtp_port_[channel];
     std::string ip = session->peer_ip_;
-
     int sendBytes = 0;
     int ret;
     auto payload = rtpPacket->payload.get();
@@ -116,7 +114,7 @@ int mediaSession::sendRtpVideoFrame(int channel, std::shared_ptr<rtpSession> ses
          *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
          */
         rtpPacket->rtpHeader.seq = htons(header_info->seq++);
-        memcpy(payload, &(rtpPackets_.rtpHeader), RTP_HEADER_SIZE);
+        memcpy(payload, &(rtpPacket->rtpHeader), RTP_HEADER_SIZE);
         memcpy(payload+RTP_HEADER_SIZE, frame, frameSize);
         ret = rtpUtil::rtpSendPacketUDP(socket, ip.c_str(), port, payload, frameSize+RTP_HEADER_SIZE);
         if(ret < 0)
@@ -195,22 +193,77 @@ int mediaSession::sendRtpVideoFrame(int channel, std::shared_ptr<rtpSession> ses
     return sendBytes;
 }
 
+int mediaSession::rtpSendAACFrame(int channel, std::shared_ptr<rtpSession> session)
+{
+    auto source = media_sources_[channel];
+    if (!source)
+    {
+        return MS_ERR;
+    }
+
+    auto rtpPacket = rtpPackets_[channel];
+    uint8_t *frame = source->getFrameBuff();
+    uint32_t frameSize = source->getFrameSize();
+
+    int socket = session->rtpfd_[channel];
+    uint16_t port = session->peer_rtp_port_[channel];
+    std::string ip = session->peer_ip_;
+
+    int sendBytes = 0;
+    int ret;
+    auto payload = rtpPacket->payload.get();
+
+    RtpHeader* header_info = &(session->rtp_header_info[channel]);
+    rtpPacket->rtpHeader.version = RTP_VESION;
+    rtpPacket->rtpHeader.marker = 1;//M: 标记，占1位，不同的有效载荷有不同的含义，对于视频，标记一帧的结束；对于音频，标记会话的开始；
+    rtpPacket->rtpHeader.payloadType = RTP_PAYLOAD_TYPE_AAC;
+    rtpPacket->rtpHeader.ssrc = htonl(0x32411);
+    rtpPacket->rtpHeader.timestamp = htonl(header_info->timestamp);
+    rtpPacket->rtpHeader.seq = htons(header_info->seq++);
+
+    memcpy(payload, &(rtpPacket->rtpHeader), RTP_HEADER_SIZE);
+
+    payload[0+RTP_HEADER_SIZE] = 0x00;
+    payload[1+RTP_HEADER_SIZE] = 0x10;
+    payload[2+RTP_HEADER_SIZE] = (frameSize & 0x1FE0) >> 5; //高8位
+    payload[3+RTP_HEADER_SIZE] = (frameSize & 0x1F) << 3; //低5位
+    memcpy(payload+RTP_HEADER_SIZE+4, frame, frameSize);
+
+    ret = rtpUtil::rtpSendPacketUDP(socket, ip.c_str(), port, payload, frameSize+RTP_HEADER_SIZE+4);
+    if(ret < 0)
+    {
+        printf("failed to send rtp packet\n");
+        return -1;
+    }
+
+    /*
+     * 如果采样频率是44100
+     * 一般AAC每个1024个采样为一帧
+     * 所以一秒就有 44100 / 1024 = 43帧
+     * 时间增量就是 44100 / 43 = 1025
+     * 一帧的时间为 1 / 43 = 23ms
+     */
+    header_info->timestamp+= 1025;
+
+    return 0;
+};
+
 void mediaSession::sendFrame(int channel)
 {
-    mediaSource* source = getMediaSource(channel);
+    auto source = lookSource(channel);
     if (source != nullptr && source->doGetNextFrame())
     {
-        std::lock_guard<std::mutex> lock(map_mutex_);
+        std::shared_lock<std::shared_timed_mutex> lock(map_mutex_);
         for (auto iter = clients_.begin(); iter != clients_.end(); ++iter)
         {
             auto session = iter->second;
-            if (session->send_frame_callback_)
+            if (session->send_frame_callback_[channel] && session->connection_state_==session->STATE_PLAY)
             {
                 session->send_frame_callback_[channel](channel, session);
             }
 
         }
-
+        usleep(source->getFrameIntervalMs()-1000);
     }
 }
 

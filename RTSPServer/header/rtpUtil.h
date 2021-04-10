@@ -38,7 +38,7 @@ struct RtpHeader
 struct RtpPacket
 {
     RtpPacket()
-		: payload(new uint8_t[RTP_TCP_HEADER_SIZE+RTP_HEADER_SIZE+RTP_MAX_PKT_SIZE+10], std::default_delete<uint8_t[]>())
+		: payload(new uint8_t[RTP_TCP_HEADER_SIZE+RTP_HEADER_SIZE+RTP_MAX_PKT_SIZE+1000], std::default_delete<uint8_t[]>())
 	{
 	}
 

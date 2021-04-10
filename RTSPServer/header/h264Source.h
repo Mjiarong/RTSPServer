@@ -17,7 +17,7 @@ public:
 
     static uint32_t GetTimestamp();
     virtual bool doGetNextFrame();
-
+    virtual uint32_t getFrameIntervalMs();
 protected:
     std::string filename_;
     h264Source(std::string filename,FILE *fileOpen);

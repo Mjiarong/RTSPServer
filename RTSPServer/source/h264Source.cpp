@@ -7,13 +7,13 @@
 #include <netinet/in.h>
 
 h264Source::h264Source(std::string filename,FILE *fileOpen)
-	: mediaSource(),
-	  filename_(filename)
+	: mediaSource()
+	,filename_(filename)
+    ,filePtr(fileOpen)
 {
     payload_    = 96;
     media_type_ = H264;
     clock_rate_ = 90000;
-    filePtr = fileOpen;
     framerate_ = 30;
 }
 
@@ -38,6 +38,11 @@ uint32_t h264Source::GetTimestamp()
 {
     auto time_point = std::chrono::time_point_cast<std::chrono::microseconds>(std::chrono::steady_clock::now());
     return (uint32_t)((time_point.time_since_epoch().count() + 500) / 1000 * 90 );
+}
+
+uint32_t h264Source::getFrameIntervalMs()
+{
+    return 1000*1000/framerate_;
 }
 
 bool h264Source::startCode3(uint8_t* buf)

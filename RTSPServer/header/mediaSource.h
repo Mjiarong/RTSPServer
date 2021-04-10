@@ -12,6 +12,7 @@ public:
 	virtual ~mediaSource() {}
 
     virtual bool doGetNextFrame() = 0;
+    virtual uint32_t getFrameIntervalMs() = 0;
 
 	virtual MediaType GetMediaType() const
 	{ return media_type_; }
